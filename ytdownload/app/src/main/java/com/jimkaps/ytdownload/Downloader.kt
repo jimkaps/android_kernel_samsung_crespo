@@ -56,12 +56,30 @@ object Downloader {
             try {
                 YoutubeDL.getInstance().init(app)
                 FFmpeg.getInstance().init(app)
+                autoUpdate(app)
                 val ver = YoutubeDL.getInstance().version(app) ?: "unknown"
                 _state.update { it.copy(ready = true, status = "Ready (yt-dlp $ver)") }
             } catch (e: Exception) {
                 Log.e(TAG, "init failed", e)
                 _state.update { it.copy(status = "Failed to initialise: ${e.message}") }
             }
+        }
+    }
+
+    /**
+     * YouTube changes often and old yt-dlp versions start failing (e.g. HTTP 403),
+     * so check for a new yt-dlp at most once a day on startup. Failures (offline etc.) are ignored.
+     */
+    private fun autoUpdate(app: Context) {
+        val prefs = app.getSharedPreferences("ytdownload", Context.MODE_PRIVATE)
+        val last = prefs.getLong("lastYtDlpUpdateCheck", 0L)
+        if (System.currentTimeMillis() - last < 24 * 60 * 60 * 1000L) return
+        _state.update { it.copy(status = "Checking for yt-dlp updates…") }
+        try {
+            YoutubeDL.getInstance().updateYoutubeDL(app, YoutubeDL.UpdateChannel.STABLE)
+            prefs.edit().putLong("lastYtDlpUpdateCheck", System.currentTimeMillis()).apply()
+        } catch (e: Exception) {
+            Log.w(TAG, "auto-update failed", e)
         }
     }
 
@@ -117,9 +135,11 @@ object Downloader {
                 _state.update { it.copy(busy = false, progress = 0, status = "Cancelled") }
             } catch (e: Exception) {
                 Log.e(TAG, "download failed", e)
+                val reason = e.message?.lineSequence()?.lastOrNull { l -> l.isNotBlank() } ?: e.javaClass.simpleName
                 _state.update {
                     it.copy(busy = false, progress = 0,
-                        status = "Failed: ${e.message?.lineSequence()?.lastOrNull { l -> l.isNotBlank() } ?: e.javaClass.simpleName}",
+                        status = "Failed: $reason\n\nTip: tap \"Update yt-dlp\" below and try again — " +
+                            "most failures are fixed by a newer yt-dlp.",
                         log = appendLog(it.log, e.message ?: ""))
                 }
             } finally {
