@@ -3,6 +3,8 @@ package com.jimkaps.ytdownload
 import android.content.ContentValues
 import android.content.Context
 import android.media.MediaScannerConnection
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -129,8 +131,112 @@ object Downloader {
 
     fun cancel() {
         currentProcessId?.let { YoutubeDL.getInstance().destroyProcessById(it) }
+        cancelRequested = true
+        ffmpegProcess?.destroy()
         job?.cancel()
     }
+
+    @Volatile private var ffmpegProcess: Process? = null
+    @Volatile private var cancelRequested = false
+
+    /** Converts a video/audio file picked on the phone into an MP3 in Downloads/YTDownload. */
+    fun convertToMp3(context: Context, uri: Uri) {
+        if (_state.value.busy || !_state.value.ready) return
+        val app = context.applicationContext
+        cancelRequested = false
+        _state.update { it.copy(busy = true, progress = -1, status = "Reading file…", log = "") }
+
+        job = scope.launch {
+            val workDir = File(app.cacheDir, "convert/${UUID.randomUUID()}").apply { mkdirs() }
+            try {
+                val displayName = queryDisplayName(app, uri) ?: "audio"
+                val baseName = displayName.substringBeforeLast('.', displayName)
+                    .replace(Regex("""[\\/:*?"<>|]"""), "_").ifBlank { "audio" }
+                val input = File(workDir, "input." + displayName.substringAfterLast('.', "bin"))
+                app.contentResolver.openInputStream(uri)?.use { inp ->
+                    input.outputStream().use { inp.copyTo(it) }
+                } ?: error("Could not open the selected file")
+
+                val output = File(workDir, "$baseName.mp3")
+                _state.update { it.copy(status = "Converting $displayName to MP3…") }
+                runFfmpeg(app, listOf(
+                    "-y", "-hide_banner", "-nostdin",
+                    "-i", input.absolutePath,
+                    "-vn", "-map_metadata", "0",
+                    "-c:a", "libmp3lame", "-q:a", "0",
+                    output.absolutePath,
+                ))
+                if (!output.exists() || output.length() == 0L) error("ffmpeg produced no output")
+
+                _state.update { it.copy(progress = -1, status = "Saving to Downloads…") }
+                val saved = saveToDownloads(app, output)
+                _state.update {
+                    it.copy(busy = false, progress = 100, status = "Saved to Downloads/$FOLDER:\n$saved")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "conversion failed", e)
+                _state.update {
+                    it.copy(busy = false, progress = 0,
+                        status = if (cancelRequested) "Cancelled" else "Conversion failed: ${e.message}")
+                }
+            } finally {
+                ffmpegProcess = null
+                workDir.deleteRecursively()
+            }
+        }
+    }
+
+    /** Runs the ffmpeg binary bundled by youtubedl-android, reporting progress from its stderr. */
+    private fun runFfmpeg(context: Context, args: List<String>) {
+        val ffmpeg = File(context.applicationInfo.nativeLibraryDir, "libffmpeg.so")
+        val packages = File(context.noBackupFilesDir, "youtubedl-android/packages")
+        val pb = ProcessBuilder(listOf(ffmpeg.absolutePath) + args).redirectErrorStream(true)
+        pb.environment()["LD_LIBRARY_PATH"] =
+            "${File(packages, "python/usr/lib")}:${File(packages, "ffmpeg/usr/lib")}"
+        pb.environment()["HOME"] = context.cacheDir.absolutePath
+
+        val process = pb.start()
+        ffmpegProcess = process
+        val timeRe = Regex("""(\d+):(\d{2}):(\d{2}(?:\.\d+)?)""")
+        fun seconds(m: MatchResult) =
+            m.groupValues[1].toDouble() * 3600 + m.groupValues[2].toDouble() * 60 + m.groupValues[3].toDouble()
+
+        var duration = 0.0
+        val tail = ArrayDeque<String>()
+        val line = StringBuilder()
+        process.inputStream.bufferedReader().use { reader ->
+            while (true) {
+                val c = reader.read()
+                if (c == -1 || c == '\n'.code || c == '\r'.code) {
+                    val l = line.toString().trim()
+                    line.clear()
+                    if (l.isNotEmpty()) {
+                        tail.addLast(l); if (tail.size > 15) tail.removeFirst()
+                        if (duration == 0.0 && l.startsWith("Duration:")) {
+                            timeRe.find(l)?.let { duration = seconds(it) }
+                        }
+                        val t = Regex("""time=(\S+)""").find(l)?.groupValues?.get(1)?.let { timeRe.find(it) }
+                        if (t != null && duration > 0) {
+                            val pct = (seconds(t) / duration * 100).toInt().coerceIn(0, 100)
+                            _state.update { it.copy(progress = pct, status = "Converting to MP3 $pct%") }
+                        }
+                    }
+                    if (c == -1) break
+                } else {
+                    line.append(c.toChar())
+                }
+            }
+        }
+        val code = process.waitFor()
+        if (code != 0) {
+            _state.update { it.copy(log = tail.joinToString("\n")) }
+            error("ffmpeg exited with code $code")
+        }
+    }
+
+    private fun queryDisplayName(context: Context, uri: Uri): String? =
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
 
     fun updateYtDlp(context: Context) {
         if (_state.value.busy) return

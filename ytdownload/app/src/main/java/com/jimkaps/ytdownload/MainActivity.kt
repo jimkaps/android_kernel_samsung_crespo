@@ -16,6 +16,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.jimkaps.ytdownload.databinding.ActivityMainBinding
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -28,6 +29,11 @@ class MainActivity : AppCompatActivity() {
             if (granted) pendingAfterPermission?.invoke()
             else Toast.makeText(this, R.string.storage_denied, Toast.LENGTH_LONG).show()
             pendingAfterPermission = null
+        }
+
+    private val pickFile =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) startConversion(uri)
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,6 +51,7 @@ class MainActivity : AppCompatActivity() {
         b.downloadButton.setOnClickListener { startDownload() }
         b.cancelButton.setOnClickListener { Downloader.cancel() }
         b.updateButton.setOnClickListener { Downloader.updateYtDlp(this) }
+        b.convertButton.setOnClickListener { pickFile.launch(arrayOf("video/*", "audio/*")) }
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -60,6 +67,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleShareIntent(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND) {
+            val type = intent.type.orEmpty()
+            if (type.startsWith("video/") || type.startsWith("audio/")) {
+                @Suppress("DEPRECATION")
+                val uri = intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM) ?: return
+                setIntent(Intent())  // don't convert again on rotation
+                // Wait for the downloader to finish initialising before converting.
+                lifecycleScope.launch {
+                    Downloader.state.first { it.ready || it.status.startsWith("Failed") }
+                    startConversion(uri)
+                }
+                return
+            }
             val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
             b.urlInput.setText(extractUrl(text) ?: text.trim())
         }
@@ -76,8 +95,15 @@ class MainActivity : AppCompatActivity() {
         }
         b.urlLayout.error = null
         val mode = if (b.modeAudio.isChecked) Mode.AUDIO else Mode.VIDEO
-        val go = { Downloader.download(this, url, mode) }
+        withStoragePermission { Downloader.download(this, url, mode) }
+    }
 
+    private fun startConversion(uri: android.net.Uri) {
+        withStoragePermission { Downloader.convertToMp3(this, uri) }
+    }
+
+    /** Android 9 and older need the storage permission to write to Downloads. */
+    private fun withStoragePermission(go: () -> Unit) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
             != PackageManager.PERMISSION_GRANTED
@@ -100,6 +126,7 @@ class MainActivity : AppCompatActivity() {
 
         b.downloadButton.isEnabled = s.ready && !s.busy
         b.updateButton.isEnabled = s.ready && !s.busy
+        b.convertButton.isEnabled = s.ready && !s.busy
         b.cancelButton.visibility = if (s.busy) View.VISIBLE else View.GONE
         b.urlInput.isEnabled = !s.busy
         b.modeGroup.isEnabled = !s.busy

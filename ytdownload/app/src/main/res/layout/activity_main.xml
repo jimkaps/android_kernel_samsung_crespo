@@ -86,6 +86,15 @@
             android:text="@string/cancel"
             android:visibility="gone" />
 
+        <Button
+            android:id="@+id/convertButton"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:enabled="false"
+            android:text="@string/convert_file" />
+
         <com.google.android.material.progressindicator.LinearProgressIndicator
             android:id="@+id/progress"
             android:layout_width="match_parent"

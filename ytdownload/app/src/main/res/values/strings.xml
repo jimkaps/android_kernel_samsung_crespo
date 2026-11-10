@@ -1,11 +1,12 @@
 <resources>
     <string name="app_name">YTDownload</string>
-    <string name="subtitle">Paste or share a video link to download it.</string>
+    <string name="subtitle">Paste or share a video link to download it, or convert a video file on your phone to MP3.</string>
     <string name="url_hint">Video URL</string>
     <string name="paste">Paste from clipboard</string>
     <string name="mode_video">Video (MP4)</string>
     <string name="mode_audio">Audio only (MP3)</string>
     <string name="download">Download</string>
+    <string name="convert_file">Convert a video file to MP3</string>
     <string name="cancel">Cancel</string>
     <string name="update_ytdlp">Update yt-dlp</string>
     <string name="invalid_url">Enter a link starting with http</string>
