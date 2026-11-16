@@ -8,6 +8,8 @@ if there is something to do, pops up a notification with a sound:
   BUY  -> open a long US 100 position of the size shown
   SELL -> close yesterday's position
   HOLD -> signal fired again, keep it open
+On exit days it also reminds you 3 hours before the close, and sends a LAST CALL 4 minutes before the close
+if you haven't confirmed. The exit is always "at the next close": no stop loss, no take profit.
 Rule: buy if QQQ's IBS < 0.30 today and yesterday, or < 0.10 today; sell at the next close.
 
 On the page you log what you actually did (fill price, skipped, fees). It keeps the trade log,
@@ -33,6 +35,8 @@ FULL_EXPOSURE = float(os.environ.get("FULL_EXPOSURE", "2000"))
 TRIAL_DAYS = int(os.environ.get("TRIAL_DAYS", "30"))
 MINUTES_BEFORE_CLOSE = int(os.environ.get("MINUTES_BEFORE_CLOSE", "10"))
 MAX_COST_PCT = float(os.environ.get("MAX_COST_PCT", "0.05"))   # backtest assumed ~0.045% of exposure per trade
+HEADSUP_HOURS = float(os.environ.get("HEADSUP_HOURS", "3"))     # on exit days, a reminder this long before the close
+LAST_CALL_MINUTES = int(os.environ.get("LAST_CALL_MINUTES", "4"))  # second alert if a BUY/SELL is still unconfirmed
 DBL, SINGLE = 0.30, 0.10
 
 HERE = Path(os.environ.get("BOT_DIR", Path(__file__).resolve().parent))
@@ -48,7 +52,7 @@ LOCK = threading.RLock()
 def new_state():
     return {"started": str(datetime.now(timezone.utc).date()), "phase": "trial", "exposure": TRIAL_EXPOSURE,
             "position": None, "pending": None, "trades": [], "events": [],
-            "alert": None, "last_run": None, "trial_checked": False, "next_check": None}
+            "alert": None, "last_run": None, "trial_checked": False, "next_check": None, "reminder": None}
 
 def load_state():
     return json.loads(STATE.read_text()) if STATE.exists() else new_state()
@@ -117,6 +121,20 @@ def units_for(exposure_gbp, level, gbpusd):
 
 
 # ======================= the daily decision =======================
+def uk_time(ts):
+    return pd.Timestamp(ts).tz_convert("Europe/London").strftime("%H:%M")
+
+def next_close_after(date_str):
+    """Close of the US session after date_str (when a position bought that day is normally sold)."""
+    return NYSE.session_close(NYSE.next_session(pd.Timestamp(date_str)))
+
+def exit_plan(date_str):
+    close = next_close_after(date_str)
+    decide = close - timedelta(minutes=MINUTES_BEFORE_CLOSE)
+    day = pd.Timestamp(close).tz_convert("Europe/London").strftime("%a %d %b")
+    return (f"Exit plan: no stop loss, no take profit. Close it on {day} between {uk_time(decide)} and {uk_time(close)} UK "
+            f"(the app will remind you at {uk_time(close - timedelta(hours=HEADSUP_HOURS))} and alert you at {uk_time(decide)}).")
+
 def minutes_to_close(now=None):
     now = now or datetime.now(timezone.utc)
     if not NYSE.is_session(now.date()):
@@ -136,28 +154,72 @@ def daily_job(s, force=False):
         return
     s["last_run"] = sig["date"]
     if s.get("pending"):
-        event(s, "warn", f"Previous {s['pending']['action']} was never confirmed. Logged as missed.", missed=s["pending"]["action"])
+        p = s["pending"]
+        if p["action"] == "SELL":
+            event(s, "warn", f"The SELL from {p['date']} was never confirmed. If you still hold the position, today's alert tells you what to do; "
+                             "if you did close it, enter the price below.", missed="SELL")
+        else:
+            event(s, "warn", f"Previous {p['action']} was never confirmed. Logged as missed.", missed=p["action"])
         s["pending"] = None
     level, gbpusd = market_levels()
     s["gbpusd"] = gbpusd
     info = f"IBS today {sig['ibs_today']}, yesterday {sig['ibs_yesterday']}"
     pos = s.get("position")
     if pos and sig["signal"]:
-        alert = dict(action="HOLD", text=f"Signal fired again. Keep your {pos['units']} units open until tomorrow's close.")
+        pos["exit_plan"] = exit_plan(sig["date"])
+        alert = dict(action="HOLD", text=f"Signal fired again. Keep your {pos['units']} units open. " + pos["exit_plan"])
     elif pos:
         s["pending"] = {"action": "SELL", "date": sig["date"], "units": pos["units"], "model_px": level}
-        alert = dict(action="SELL", text=f"Close your US 100 position ({pos['units']} units) now. Index ≈ {level:,.1f}.")
+        alert = dict(action="SELL", text=f"Close your US 100 position ({pos['units']} units) now, before "
+                                         f"{uk_time(NYSE.session_close(pd.Timestamp(sig['date'])))} UK. Index ≈ {level:,.1f}.")
     elif sig["signal"]:
         units = units_for(s["exposure"], level, gbpusd)
         s["pending"] = {"action": "BUY", "date": sig["date"], "units": units, "model_px": level}
         alert = dict(action="BUY", text=f"Open a long US 100 position of {units} units now "
-                                        f"(≈ £{s['exposure']:,.0f}, index ≈ {level:,.1f}). No stop, no target.")
+                                        f"(≈ £{s['exposure']:,.0f}, index ≈ {level:,.1f}). No stop, no target. "
+                                        + exit_plan(sig["date"]))
     else:
         alert = dict(action="NONE", text="Nothing to do today.")
-    s["alert"] = {**alert, "date": sig["date"], "info": info, "id": f"{sig['date']}-{alert['action']}"}
+    s["alert"] = {**alert, "date": sig["date"], "info": info, "id": f"{sig['date']}-{alert['action']}",
+                  "deadline": NYSE.session_close(pd.Timestamp(sig["date"])).isoformat()}
+    s["reminder"] = None
     event(s, alert["action"].lower(), f"{sig['date']}: {alert['action']}. {alert['text']} ({info})")
     if alert["action"] != "NONE":
         desktop_notify(f"IBS: {alert['action']}", alert["text"])
+
+
+def headsup_job(s, sess):
+    """Exit day: tell the user hours ahead that they need to be at the screen near the close."""
+    pos = s.get("position")
+    if not pos:
+        return
+    close = NYSE.session_close(sess); decide = close - timedelta(minutes=MINUTES_BEFORE_CLOSE)
+    text = (f"Exit day: you hold {pos['units']} US 100 units. At {uk_time(decide)} UK the app will tell you to close them "
+            f"(or to hold if the signal fires again). Be at your screen {uk_time(decide)}–{uk_time(close)} UK. "
+            "Can't be there? Close it yourself any time before then; closing a few hours early is fine, leaving it open is not.")
+    s["reminder"] = {"id": f"{str(sess.date())}-HEADSUP", "text": text}
+    event(s, "reminder", text); desktop_notify("IBS: exit day", text)
+
+def last_call_job(s):
+    p, a = s.get("pending"), s.get("alert")
+    if not p or not a or a.get("done"):
+        return
+    a["last_call"] = True; a["id"] = a["id"].split("#")[0] + "#last"
+    text = f"LAST CALL: {p['action']} {p['units']} units is still not confirmed. The US close is in {LAST_CALL_MINUTES} minutes."
+    event(s, "warn", text); desktop_notify(f"IBS: LAST CALL {p['action']}", text)
+
+def overdue(s, now=None):
+    """A BUY/SELL whose close has passed without being confirmed."""
+    p, a = s.get("pending"), s.get("alert")
+    if not p or not a or not a.get("deadline"):
+        return None
+    if (now or datetime.now(timezone.utc)) < pd.Timestamp(a["deadline"]):
+        return None
+    if p["action"] == "SELL":
+        return ("You didn't confirm the SELL before the close. If you still hold the position, close it now: the US 100 CFD "
+                "trades almost around the clock, and a late close is much better than leaving it open. Then enter your price. "
+                "If you did close it, just enter the price.")
+    return "The BUY wasn't confirmed before the close. Don't buy late: click I skipped it (or enter the price if you did buy)."
 
 
 # ======================= user actions =======================
@@ -167,7 +229,7 @@ def act_filled(s, price):
         raise ValueError("Nothing is waiting for a fill.")
     if p["action"] == "BUY":
         s["position"] = {"entry_date": p["date"], "units": p["units"], "fill": price, "model_px": p["model_px"],
-                         "fees": 0.0, "exposure": s["exposure"], "fx": s.get("gbpusd") or 1.30}
+                         "fees": 0.0, "exposure": s["exposure"], "fx": s.get("gbpusd") or 1.30, "exit_plan": exit_plan(p["date"])}
         event(s, "fill", f"Bought {p['units']} units at {price:,.1f}")
     else:
         pos = s["position"]; fx = pos.get("fx") or s.get("gbpusd") or 1.30
@@ -245,29 +307,46 @@ def trial_check(s):
 
 # ======================= scheduler thread =======================
 def next_fire(after):
+    """Next decision time (MINUTES_BEFORE_CLOSE before a US close)."""
+    return next_job(after, kinds=("decide",))[0]
+
+def next_job(after, kinds=("headsup", "decide", "lastcall")):
+    """Earliest scheduled job after `after`: (time, kind, session)."""
     sess = NYSE.date_to_session(after.date(), direction="next")
-    fire = NYSE.session_close(sess) - timedelta(minutes=MINUTES_BEFORE_CLOSE)
-    if fire < after:
-        fire = NYSE.session_close(NYSE.next_session(sess)) - timedelta(minutes=MINUTES_BEFORE_CLOSE)
-    return fire
+    for _ in range(3):
+        close = NYSE.session_close(sess)
+        times = {"headsup": close - timedelta(hours=HEADSUP_HOURS), "decide": close - timedelta(minutes=MINUTES_BEFORE_CLOSE),
+                 "lastcall": close - timedelta(minutes=LAST_CALL_MINUTES)}
+        jobs = sorted((t, k) for k, t in times.items() if k in kinds and t > after)
+        if jobs:
+            return jobs[0][0], jobs[0][1], sess
+        sess = NYSE.next_session(sess)
 
 def scheduler():
-    fire = next_fire(datetime.now(timezone.utc))
-    with LOCK:
-        s = load_state(); s["next_check"] = fire.isoformat(); save_state(s)
+    def set_next():
+        with LOCK:
+            s = load_state(); s["next_check"] = next_fire(datetime.now(timezone.utc)).isoformat(); save_state(s)
+    fire, kind, sess = next_job(datetime.now(timezone.utc)); set_next()
     while True:
         now = datetime.now(timezone.utc)
         if now >= fire:
+            late = (now - fire).total_seconds() / 60
             for attempt in range(5):
                 try:
                     with LOCK:
-                        s = load_state(); daily_job(s); trial_check(s); save_state(s)
+                        s = load_state()
+                        if kind == "decide":
+                            daily_job(s); trial_check(s)
+                        elif kind == "headsup" and late < 60:
+                            headsup_job(s, sess)
+                        elif kind == "lastcall" and late < LAST_CALL_MINUTES:
+                            last_call_job(s)
+                        save_state(s)
                     break
                 except Exception:
                     log.error(traceback.format_exc()); time.sleep(30)
-            fire = next_fire(datetime.now(timezone.utc) + timedelta(minutes=MINUTES_BEFORE_CLOSE + 1))
-            with LOCK:
-                s = load_state(); s["next_check"] = fire.isoformat(); save_state(s)
+            fire, kind, sess = next_job(fire)
+            set_next()
         time.sleep(15)
 
 
@@ -286,7 +365,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8"); self.end_headers(); self.wfile.write(b)
         elif self.path == "/api/state":
             with LOCK:
-                s = load_state(); self._json({"state": s, "report": report(s), "config": {"trial_days": TRIAL_DAYS, "full": FULL_EXPOSURE}})
+                s = load_state(); self._json({"state": s, "report": report(s), "overdue": overdue(s),
+                                              "config": {"trial_days": TRIAL_DAYS, "full": FULL_EXPOSURE}})
         else:
             self.send_error(404)
     def do_POST(self):

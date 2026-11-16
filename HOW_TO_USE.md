@@ -52,6 +52,24 @@ At ~20:50 UK, if there's something to do, you'll get a **pop-up and a sound**. G
   **Add overnight fee** and click the button.
 - Do it **within ~10 minutes of the alert**, before the US close at 21:00 UK.
 
+### How the exit works (reminders)
+The exit is always **at the next US close**. There is **no stop loss and no take profit**: I tested both on 2010–2026 data and
+every stop/target combination made less money, and most had *bigger* drawdowns (a 1% stop turned +£159/yr into about £0; a 1% target
+cut it to +£70/yr). The page shows your **exit plan** under "Open position" as soon as you log a buy.
+
+On days you hold a position, the app reminds you three times:
+1. **~18:00 UK, "Exit day"**: be at your screen 20:50–21:00 UK.
+2. **~20:50 UK, SELL (or HOLD)**: close the position (or keep it if the signal fired again).
+3. **~20:56 UK, LAST CALL**: only if you haven't clicked *I did it* yet. The page also beeps every 3 minutes until you confirm.
+
+If the close passes and you haven't confirmed, a **red "overdue" message** tells you to close it straight away (the CFD trades almost
+around the clock, so a late close is far better than leaving it open).
+
+**Can't be there tomorrow?** Either skip the buy, or close it yourself earlier in the day. Closing at the US open (14:30 UK)
+keeps less of the edge (about +£50/yr instead of +£180/yr over all trades), but that's fine for the odd day. Don't leave it open.
+
+The times shift by an hour for a few weeks in March and Oct/Nov, and are earlier on US half-days. The app handles this.
+
 ### The three rules that matter
 1. **Take every signal.** Skipping trades you "don't like" breaks the statistics.
 2. **Always close at the next close** (unless the page says HOLD). Never hold a loser longer "to get back to even".

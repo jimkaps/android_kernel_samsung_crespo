@@ -62,6 +62,14 @@ IBS is a published effect and could weaken. Lucid rules came from third-party su
 - `test_assistant.py`: offline tests (fake data): buy→hold→sell cycle, fees, report maths, skip, unconfirmed = missed, trial upgrade, mid-day preview. Run `python test_assistant.py`.
 - `HOW_TO_USE.md`: the user's guide. `README.md`: short technical readme.
 
+- **Exit reminders** (added after the user said they couldn't exit reliably):
+  - On days a position is held, a heads-up `HEADSUP_HOURS` (3) before the close.
+  - The normal SELL/HOLD at T-10, then a LAST CALL at T-`LAST_CALL_MINUTES` (4) if it's still unconfirmed.
+  - The page beeps every 3 minutes while a BUY/SELL is unconfirmed, and `overdue()` shows a red banner after the close.
+  - Each position stores an `exit_plan` text.
+  - `research/tpsl.py`: every SL/TP combination tested was worse than exiting at the close. A 4% stop was the least bad (+£144/yr vs +£159/yr).
+  - `research/exit_time.py`: exiting at the next US open gives ~+£50/yr vs +£180/yr at the close. Recommend no SL/TP.
+
 ### `qqq_ibs_bot/` (alternative, not in use)
 Automated QQQ-share bot for the Trading 212 **Invest/ISA** API (`/api/v0/equity/orders/market`, negative quantity = sell;
 auth header = API key, or Basic base64(key:secret) for newer keys). Defaults to demo + dry run, only sells shares it bought,

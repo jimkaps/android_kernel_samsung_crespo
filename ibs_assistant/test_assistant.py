@@ -42,6 +42,28 @@ def test_check_now_is_preview_midday():
     s = a.new_state(); a.minutes_to_close = lambda now=None: 300
     a.signal_now = lambda: dict(date="2026-01-05", ibs_today=0.05, ibs_yesterday=0.2, signal=True)
     a.daily_job(s, force=True); assert s["pending"] is None and s["alert"] is None and s["events"][0]["kind"] == "preview"
+def test_exit_reminders():
+    import pandas as pd
+    from datetime import datetime, timezone
+    s = a.new_state(); day("2026-01-05", True, s)
+    assert "Exit plan" in s["alert"]["text"] and "Tue 06 Jan" in s["alert"]["text"] and "20:50" in s["alert"]["text"]
+    a.last_call_job(s); assert s["alert"]["last_call"] and s["alert"]["id"].endswith("#last")      # unconfirmed -> last call
+    assert a.overdue(s, datetime(2026, 1, 5, 20, 0, tzinfo=timezone.utc)) is None                   # before the 21:00 UTC close
+    assert "skipped" in a.overdue(s, datetime(2026, 1, 5, 21, 5, tzinfo=timezone.utc))              # missed buy: don't buy late
+    a.act_filled(s, 25000.0); assert "Tue 06 Jan" in s["position"]["exit_plan"]
+    a.headsup_job(s, pd.Timestamp("2026-01-06")); assert s["reminder"] and "18:00" not in s["reminder"]["text"] and "20:50" in s["reminder"]["text"]
+    day("2026-01-06", False, s); assert s["alert"]["action"] == "SELL" and s["reminder"] is None
+    assert "close it now" in a.overdue(s, datetime(2026, 1, 6, 22, 0, tzinfo=timezone.utc))         # missed sell
+    a.act_filled(s, 25100.0); assert a.overdue(s) is None
+    s2 = a.new_state(); a.headsup_job(s2, pd.Timestamp("2026-01-06")); assert s2["reminder"] is None  # nothing held: no reminder
+def test_schedule_order():
+    from datetime import datetime, timezone
+    t0 = datetime(2026, 1, 6, 12, 0, tzinfo=timezone.utc); kinds = []
+    for _ in range(4):
+        f, k, sess = a.next_job(t0); kinds.append((f.strftime("%a %H:%M"), k)); t0 = f
+    assert kinds == [("Tue 18:00", "headsup"), ("Tue 20:50", "decide"), ("Tue 20:56", "lastcall"), ("Wed 18:00", "headsup")], kinds
+    assert a.next_fire(datetime(2026, 1, 6, 20, 51, tzinfo=timezone.utc)).strftime("%a %H:%M") == "Wed 20:50"
 
 if __name__ == "__main__":
-    test_cycle(); test_skip_and_missed(); test_unconfirmed_logged(); test_trial_upgrade(); test_check_now_is_preview_midday(); print("all tests passed")
+    test_cycle(); test_skip_and_missed(); test_unconfirmed_logged(); test_trial_upgrade(); test_check_now_is_preview_midday()
+    test_exit_reminders(); test_schedule_order(); print("all tests passed")
