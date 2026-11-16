@@ -92,3 +92,39 @@ One month is profitable only about 6 times in 10, and a year about 9 times in 10
 | Moving to a new computer | Copy the whole folder, including `assistant_state.json` (your history). |
 
 *Past results don't guarantee future ones. Only trade money you can afford to lose.*
+
+---
+
+## Running it on a Raspberry Pi (always on)
+
+A Pi can run the assistant 24/7, so your laptop doesn't have to be awake at 20:50.
+
+1. On the Pi (Raspberry Pi OS, connected to your home network), open a terminal or SSH in and run:
+
+   ```bash
+   git clone -b claude/sharp-franklin-o9bmsa --single-branch https://github.com/jimkaps/android_kernel_samsung_crespo.git ibs_project
+   ```
+
+   ```bash
+   cd ibs_project && bash ibs_assistant/raspberry_pi/install_pi.sh
+   ```
+
+   It installs what's needed, sets the assistant to start automatically whenever the Pi boots, and prints the address,
+   for example `http://192.168.1.50:8765`.
+2. On your laptop or phone (same Wi-Fi), open that address and click **Enable alerts**.
+   Bookmark it, or add it to your phone's home screen.
+
+**Alerts:** a Pi has no screen, so the pop-up and sound come from the browser tab where the page is open.
+Keep it open on your laptop around 20:50, or open the page on your phone when you expect a signal.
+
+**Useful commands on the Pi:**
+
+| Command | What it does |
+|---|---|
+| `sudo systemctl status ibs-assistant` | is it running? |
+| `sudo systemctl restart ibs-assistant` | restart it |
+| `journalctl -u ibs-assistant -n 50` | last 50 log lines |
+| `cd ~/ibs_project && git pull && sudo systemctl restart ibs-assistant` | update to the latest version |
+
+Your trade history is in `~/ibs_project/ibs_assistant/assistant_state.json`. Back it up now and then.
+The page has no password, so anyone on your home Wi-Fi can open it. Don't forward the port on your router.

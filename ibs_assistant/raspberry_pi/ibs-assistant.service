@@ -1,0 +1,16 @@
+[Unit]
+Description=IBS trading assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/ibs_project/ibs_assistant
+Environment=HOST=0.0.0.0
+Environment=NO_BROWSER=1
+ExecStart=/home/pi/ibs_project/venv/bin/python ibs_assistant.py
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -26,6 +26,7 @@ import yfinance as yf
 import exchange_calendars as xcals
 
 PORT = int(os.environ.get("PORT", "8765"))
+HOST = os.environ.get("HOST", "127.0.0.1")   # 0.0.0.0 = reachable from other devices on your home network (e.g. on a Raspberry Pi)
 UNIT_VALUE = float(os.environ.get("UNIT_VALUE", "1.0"))   # USD per index point for 1 unit of the CFD (check Trading 212's instrument details)
 TRIAL_EXPOSURE = float(os.environ.get("TRIAL_EXPOSURE", "500"))
 FULL_EXPOSURE = float(os.environ.get("FULL_EXPOSURE", "2000"))
@@ -310,7 +311,7 @@ def main():
     if not STATE.exists():
         save_state(new_state())
     threading.Thread(target=scheduler, daemon=True).start()
-    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)        # only reachable from this computer
+    srv = ThreadingHTTPServer((HOST, PORT), Handler)   # default: only this computer; HOST=0.0.0.0 for the home network
     url = f"http://localhost:{PORT}"
     log.info(f"IBS assistant running at {url} (Ctrl+C to stop)")
     if os.environ.get("NO_BROWSER") != "1":

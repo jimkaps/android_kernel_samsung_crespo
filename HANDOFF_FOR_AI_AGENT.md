@@ -58,6 +58,7 @@ IBS is a published effect and could weaken. Lucid rules came from third-party su
   - State in `assistant_state.json`, log in `assistant.log`.
 - `page.html`: the single-page UI (polls `/api/state` every 20 s, browser Notification + beep on a new alert). Light/dark aware.
 - `start_windows.bat`, `start_mac.command`: install deps and start.
+- `raspberry_pi/install_pi.sh` + `ibs-assistant.service`: installs into a venv and runs as a systemd service with `HOST=0.0.0.0` (page reachable on the LAN, no auth). `HOST` env var defaults to 127.0.0.1. The user has a Raspberry Pi on their home network; deployment was prepared but **not yet done** (the cloud session couldn't reach it).
 - `test_assistant.py`: offline tests (fake data): buy→hold→sell cycle, fees, report maths, skip, unconfirmed = missed, trial upgrade, mid-day preview. Run `python test_assistant.py`.
 - `HOW_TO_USE.md`: the user's guide. `README.md`: short technical readme.
 
