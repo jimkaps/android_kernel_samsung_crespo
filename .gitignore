@@ -1,0 +1,6 @@
+assistant_state.json
+assistant.log
+state.json
+bot.log
+__pycache__/
+*.csv
