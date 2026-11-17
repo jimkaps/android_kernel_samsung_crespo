@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IBS Assistant</title>
+<style>
+:root{--bg:#f6f6f4;--card:#fff;--ink:#0b0b0b;--ink2:#52514e;--line:#e4e3df;--accent:#2a78d6;
+  --buy:#0b8a3e;--sell:#c93636;--hold:#2a78d6;--none:#8a8984;--warn:#b26a00}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--card:#1f1f1e;--ink:#f0efec;--ink2:#b5b4ab;--line:#383835;
+  --accent:#5598e7;--buy:#34b46a;--sell:#e66767;--hold:#5598e7;--none:#8a8984;--warn:#e0a030}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Roboto,sans-serif}
+main{max-width:720px;margin:0 auto;padding:16px 16px 48px}
+h1{font-size:20px;margin:0 0 4px} .sub{color:var(--ink2);font-size:13px;margin-bottom:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.action{border-left:6px solid var(--none)}
+.action .tag{display:inline-block;font-weight:700;font-size:13px;letter-spacing:.06em;padding:3px 10px;border-radius:99px;color:#fff;background:var(--none)}
+.action h2{margin:8px 0 4px;font-size:22px} .action p{margin:0 0 10px;color:var(--ink2)}
+.BUY{border-left-color:var(--buy)} .BUY .tag{background:var(--buy)}
+.SELL{border-left-color:var(--sell)} .SELL .tag{background:var(--sell)}
+.HOLD{border-left-color:var(--hold)} .HOLD .tag{background:var(--hold)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input{font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);width:150px;min-width:0;flex:1 1 130px}
+button{font:inherit;padding:10px 14px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:active{filter:brightness(.9)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.stat{background:var(--bg);border-radius:10px;padding:8px 10px;min-width:0}
+.stat .k{font-size:12px;color:var(--ink2)} .stat .v{font-size:18px;font-weight:650;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.pos{color:var(--buy)} .neg{color:var(--sell)}
+h3{font-size:13px;margin:0 0 10px;color:var(--ink2);text-transform:uppercase;letter-spacing:.05em}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap} th{color:var(--ink2);font-weight:600}
+.log div{padding:5px 0;border-bottom:1px solid var(--line);font-size:13px} .log .t{color:var(--ink2);margin-right:8px}
+.note{font-size:13px;color:var(--ink2)} .err{color:var(--sell);font-size:13px;min-height:1em;margin-top:6px}
+.fix{background:var(--warn);color:#fff;border-radius:10px;padding:10px 12px;margin-bottom:10px;display:none}
+.fix button{margin-top:8px;background:#fff;color:#000;border:0}
+.overdue{background:var(--sell);color:#fff;border-radius:8px;padding:8px 12px;margin:0 0 10px;display:none;font-weight:600}
+.remind{border-left:6px solid var(--warn);display:none}
+.plan{background:var(--bg);border-radius:10px;padding:10px 12px;margin-top:10px;font-size:14px;display:none}
+</style>
+</head>
+<body>
+<main>
+  <h1>IBS Assistant: US 100</h1>
+  <div class="sub" id="sub">loading…</div>
+
+  <div class="fix" id="fixNotif"><b>Notifications are off.</b> Without them you won't get BUY/SELL alerts.<br><button onclick="IBS.fixNotifications()">Turn on notifications</button></div>
+  <div class="fix" id="fixExact"><b>Exact alarms are off.</b> Alerts could arrive late. Allow "Alarms &amp; reminders" for this app.<br><button onclick="IBS.fixExact()">Allow alarms</button></div>
+  <div class="fix" id="fixBatt"><b>Battery saver may delay alerts.</b> Let the app run unrestricted in the background.<br><button onclick="IBS.fixBattery()">Allow background use</button></div>
+
+  <div class="card action" id="action">
+    <span class="tag" id="tag">-</span>
+    <h2 id="atitle">Waiting for the next check</h2>
+    <p id="atext"></p>
+    <div class="overdue" id="overdue"></div>
+    <div id="fillrow" style="display:none">
+      <div class="row">
+        <input id="price" type="number" inputmode="decimal" step="0.1" placeholder="your fill price">
+        <button class="primary" id="filled">I did it</button>
+        <button id="skip">I skipped it</button>
+      </div>
+      <div class="note" style="margin-top:6px">Type the price Trading 212 filled you at (prefilled with the index level at the alert).</div>
+    </div>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div class="card remind" id="remind"><h3>Reminder</h3><div id="rtext"></div></div>
+
+  <div class="card">
+    <h3>Status</h3>
+    <div class="grid">
+      <div class="stat"><div class="k">Phase</div><div class="v" id="phase">-</div></div>
+      <div class="stat"><div class="k">Size per trade</div><div class="v" id="expo">-</div></div>
+      <div class="stat"><div class="k">Open position</div><div class="v" id="posn">-</div></div>
+      <div class="stat"><div class="k">Next check</div><div class="v" id="next" style="font-size:15px">-</div></div>
+    </div>
+    <div class="plan" id="plan"></div>
+  </div>
+
+  <div class="card">
+    <h3>Performance: you vs the model</h3>
+    <div class="grid">
+      <div class="stat"><div class="k">Your P&amp;L</div><div class="v" id="pnl">-</div></div>
+      <div class="stat"><div class="k">Trades (wins)</div><div class="v" id="ntr">-</div></div>
+      <div class="stat"><div class="k">Model P&amp;L</div><div class="v" id="model">-</div></div>
+      <div class="stat"><div class="k">Real cost / trade</div><div class="v" id="cost">-</div></div>
+      <div class="stat"><div class="k">Slippage / trade</div><div class="v" id="slip">-</div></div>
+      <div class="stat"><div class="k">Missed buys</div><div class="v" id="missed">-</div></div>
+    </div>
+    <p class="note">The backtest assumed costs of about 0.045% of the size per trade. If your real cost goes above about 0.05%,
+      the edge is shrinking. Over a few weeks, P&amp;L is mostly luck; cost is what to watch.</p>
+  </div>
+
+  <div class="card">
+    <h3>Trades</h3>
+    <div class="tablewrap"><table><thead><tr><th>Bought</th><th>Units</th><th>Entry</th><th>Close</th><th>Sold</th><th>Exit</th><th>Close</th><th>Fees £</th><th>P&amp;L £</th></tr></thead>
+      <tbody id="trades"><tr><td colspan="9" class="note">No closed trades yet.</td></tr></tbody></table></div>
+  </div>
+
+  <div class="card">
+    <h3>Fees and settings</h3>
+    <div class="row" style="margin-bottom:8px">
+      <input id="fee" type="number" inputmode="decimal" step="0.01" placeholder="fee £ (e.g. 0.36)"><button id="addfee">Add overnight fee</button>
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <input id="expoin" type="number" inputmode="decimal" step="50" placeholder="£ per trade"><button id="setexpo">Change size</button>
+    </div>
+    <div class="row">
+      <button id="check">Check signal now</button>
+      <button onclick="IBS.testAlert()">Send a test alert</button>
+      <button onclick="IBS.export()">Export trade log</button>
+    </div>
+    <div class="err" id="err2"></div>
+  </div>
+
+  <div class="card log">
+    <h3>Activity</h3>
+    <div id="events"></div>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const gbp = v => v == null ? "–" : (v < 0 ? "−£" : "£") + Math.abs(v).toLocaleString("en-GB",{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc = t => String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;");
+function cls(v){ return v>0?"pos":v<0?"neg":""; }
+function act(fn, errId){ $(errId).textContent=""; const r = JSON.parse(fn()); if(!r.ok) $(errId).textContent = r.error; else refresh(); return r.ok; }
+let prefilledFor = "";
+function refresh(){
+  const d = JSON.parse(IBS.state()), s = d.state, r = d.report, a = s.alert, p = d.perms;
+  $("fixNotif").style.display = p.notifications ? "none" : "block";
+  $("fixExact").style.display = p.exact ? "none" : "block";
+  $("fixBatt").style.display = p.battery ? "none" : "block";
+  $("sub").textContent = `Started ${s.started}. Buy at the close when QQQ IBS < 0.30 two days running, IBS < 0.10 today, or RSI(2) < 10; sell at the next close. Never on a Friday: no weekend holds.`;
+  $("action").className = "card action " + (a ? a.action : "");
+  $("tag").textContent = a ? a.action : "-";
+  $("atitle").textContent = a ? ({BUY:"Buy US 100 now",SELL:"Sell now",HOLD:"Hold",NONE:"Nothing today"}[a.action] + " · " + a.date) : "Waiting for the next check";
+  $("atext").textContent = a ? (a.text + "  (" + a.info + ")" + (a.done ? "  ✓ logged" : "")) : "The app checks automatically about 10 minutes before each US close and notifies you.";
+  $("fillrow").style.display = s.pending ? "block" : "none";
+  if (s.pending && prefilledFor !== s.pending.date + s.pending.action) {
+    prefilledFor = s.pending.date + s.pending.action; $("price").value = s.pending.model_px ? s.pending.model_px.toFixed(1) : "";
+  }
+  $("overdue").style.display = d.overdue ? "block" : "none"; $("overdue").textContent = d.overdue || "";
+  const rem = s.reminder; $("remind").style.display = rem ? "block" : "none"; $("rtext").textContent = rem ? rem.text : "";
+  $("plan").style.display = s.position ? "block" : "none";
+  $("plan").textContent = s.position ? (s.position.exit_plan || "Exit plan: close it at the next US close. No stop loss, no take profit.") : "";
+  $("phase").textContent = s.phase === "trial" ? "Trial" : "Full size";
+  $("expo").textContent = "£" + Number(s.exposure).toLocaleString("en-GB");
+  $("posn").textContent = s.position ? `${s.position.units} @ ${s.position.fill}` : "none";
+  $("next").textContent = s.next_check ? new Date(s.next_check).toLocaleString("en-GB", {weekday:"short", hour:"2-digit", minute:"2-digit", day:"numeric", month:"short"}) : "-";
+  $("pnl").textContent = gbp(r.pnl); $("pnl").className = "v " + cls(r.pnl);
+  $("ntr").textContent = `${r.n} (${r.wins})`;
+  $("model").textContent = gbp(r.model);
+  $("cost").textContent = r.cost_pct == null ? "–" : `${gbp(r.cost_per)} · ${r.cost_pct}%`;
+  $("cost").className = "v " + (r.cost_pct == null ? "" : r.cost_pct > 0.05 ? "neg" : "pos");
+  $("slip").textContent = gbp(r.slip); $("missed").textContent = r.missed;
+  $("trades").innerHTML = s.trades.length ? s.trades.slice().reverse().map(t => `<tr><td>${esc(t.entry_date)}</td><td>${t.units}</td><td>${t.fill}</td>
+    <td>${t.close_entry ? t.close_entry.toFixed(1) : "…"}</td><td>${esc(t.exit_date)}</td><td>${t.exit_fill}</td><td>${t.close_exit ? t.close_exit.toFixed(1) : "…"}</td>
+    <td>${t.fees.toFixed(2)}</td><td class="${cls(t.pnl_gbp)}">${t.pnl_gbp.toFixed(2)}</td></tr>`).join("") : `<tr><td colspan="9" class="note">No closed trades yet.</td></tr>`;
+  $("events").innerHTML = s.events.slice(0, 60).map(e => `<div><span class="t">${esc(e.time)}</span>${esc(e.text)}</div>`).join("") || `<div class="note">Nothing yet.</div>`;
+}
+function onChecked(json){ const r = JSON.parse(json); $("err2").textContent = r.ok ? "" : r.error; refresh(); }
+$("filled").onclick = () => { if (act(() => IBS.filled($("price").value), "err")) $("price").value = ""; };
+$("skip").onclick = () => act(() => IBS.skip(), "err");
+$("addfee").onclick = () => { if (act(() => IBS.fee($("fee").value), "err2")) $("fee").value = ""; };
+$("setexpo").onclick = () => { if (act(() => IBS.exposure($("expoin").value), "err2")) $("expoin").value = ""; };
+$("check").onclick = () => { $("err2").textContent = "checking…"; IBS.check(); };
+refresh(); setInterval(refresh, 20000);
+</script>
+</body>
+</html>

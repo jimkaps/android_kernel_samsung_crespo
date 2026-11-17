@@ -76,6 +76,16 @@ IBS is a published effect and could weaken. Lucid rules came from third-party su
   - `research/tpsl.py`: every SL/TP combination tested was worse than exiting at the close. A 4% stop was the least bad (+£144/yr vs +£159/yr).
   - `research/exit_time.py`: exiting at the next US open gives ~+£50/yr vs +£180/yr at the close. Recommend no SL/TP.
 
+### `android_app/` (phone version, added 2026-11-17)
+Standalone Android app (Kotlin, no AndroidX): same rules, state layout and texts as `ibs_assistant.py`, ported to
+`core/Engine.kt` (state = JSONObject like assistant_state.json), `core/Nyse.kt` (rule-based NYSE calendar, unit-tested
+against exchange_calendars for every day 2019–2030), `core/Market.kt` (Yahoo chart API, today's H/L/last from `meta`).
+Alarms: alarm-clock alarm for the decision (T−10), exact alarms for heads-up/last call/overdue only when relevant,
+rescheduled on boot/update/time change. UI = `assets/index.html` in a WebView via a JS bridge. Built by GitHub Actions
+(`.github/workflows/build-ibs-app.yml`) into releases tagged `ibs-app-build-N`; fixed signing key in the repo so updates install over.
+The build environment for Claude sessions can't reach dl.google.com, so the Android build only runs on Actions;
+`core/` tests can run locally with a plain Kotlin JVM Gradle build.
+
 ### `qqq_ibs_bot/` (alternative, not in use)
 Automated QQQ-share bot for the Trading 212 **Invest/ISA** API (`/api/v0/equity/orders/market`, negative quantity = sell;
 auth header = API key, or Basic base64(key:secret) for newer keys). Defaults to demo + dry run, only sells shares it bought,

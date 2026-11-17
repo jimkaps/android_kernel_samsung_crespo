@@ -4,6 +4,7 @@
 - **An AI agent on another computer:** read `HANDOFF_FOR_AI_AGENT.md` first. It has the full context.
 
 Folders:
-- `ibs_assistant/`: the app in use (alerts, trade log, cost check, trial)
+- `android_app/`: the same assistant as an Android app (no laptop or Pi needed); install the APK from Releases
+- `ibs_assistant/`: the desktop/Raspberry Pi version (alerts, trade log, cost check, trial)
 - `qqq_ibs_bot/`: alternative automated bot for Trading 212 Invest/ISA (not in use; see handoff §4)
 - `research/`: backtest scripts and charts
