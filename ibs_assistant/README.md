@@ -28,6 +28,8 @@ pop-up and a sound, and the page shows one of:
 | **HOLD** | nothing; keep it open one more day | nothing |
 | Nothing today | nothing | nothing |
 
+It never says BUY on a Friday, and on Fridays a held position is always SELL (no weekend holds).
+
 If you couldn't trade, click **I skipped it**. Missed trades are counted so you can see what they cost.
 When Trading 212 charges an overnight fee, enter it under **Add overnight fee** (it's attached to the open trade).
 

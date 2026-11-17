@@ -74,6 +74,13 @@ The times shift by an hour for a few weeks in March and Oct/Nov, and are earlier
 1. **Take every signal.** Skipping trades you "don't like" breaks the statistics.
 2. **Always close at the next close** (unless the page says HOLD). Never hold a loser longer "to get back to even".
 3. **No stops, no targets, no extra size.** The backtest only works if you follow it exactly.
+4. **Never hold over a weekend.** The app never says BUY on a Friday, and if you hold a position on Friday it says SELL
+   (never HOLD). Weekends cost three nights of overnight fees and carry gap risk, and Friday buys did worst in testing.
+
+**When does it say BUY?** At the US close, if any of these is true for QQQ (and it isn't Friday):
+- IBS below 0.30 today **and** yesterday (the close was near the day's low two days running), or
+- IBS below 0.10 today, or
+- RSI(2) below 10 (a short, sharp two-day drop).
 
 ---
 
@@ -95,8 +102,8 @@ The times shift by an hour for a few weeks in March and Oct/Nov, and are earlier
 - **Missed buys:** signals you skipped or didn't confirm.
 
 **What to expect** (backtest 2010–2026, £2,000 per trade):
-about 34 trades a year, 58% winners, about **+£180 a year**. Worst drawdown about **−£380**; worst single night about −£126.
-One month is profitable only about 6 times in 10, and a year about 9 times in 10. **Don't judge it on a few weeks.**
+about 26 trades a year (about one every two weeks), 65% winners, about **+£185 a year**. Worst drawdown about **−£235**;
+worst single trade about −£170. One month is profitable only about 6 times in 10, and a year about 9 times in 10. **Don't judge it on a few weeks.**
 
 ---
 

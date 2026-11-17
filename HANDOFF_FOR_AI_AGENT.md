@@ -16,11 +16,14 @@ They explicitly **do not want Telegram**. The app is a browser page served from 
 ## 2. The strategy
 
 - **IBS** (internal bar strength) = (close − low) / (high − low) of the **US regular session** (09:30–16:00 New York), computed on **QQQ**.
-- **Buy at the close** if `IBS_today < 0.30 and IBS_yesterday < 0.30` **or** `IBS_today < 0.10`.
+- **Buy at the close** if `IBS_today < 0.30 and IBS_yesterday < 0.30` **or** `IBS_today < 0.10` **or** `RSI(2) < 10` (QQQ daily closes, Wilder smoothing alpha=0.5, today's live price as the last close).
+- **Never on a Friday:** no buys on Fridays, and a held position is sold on Friday (no weekend holds).
 - **Sell at the next day's close.** If the buy signal fires again that day, keep holding (no sell + rebuy).
+- The RSI(2) entry and the Friday rule were added on 2026-11-17 after `research/improve.py` (see §3).
 - No stop, no target. Long only (the short side had no edge).
 - In practice the decision is made ~10 min before the close using the day's high/low/last at that moment (no market-on-close orders).
-- Frequency: ~34 trades/year, in the market ~14% of days, 58% winners.
+- Frequency: ~26 complete trades/year (buy to sell; the old "34/yr" counted HOLD nights), in the market ~10% of days, 65% winners.
+- Backtest 2010–2026 at £2,000/trade after CFD costs: +£184/yr, worst DD −£235 (old rule: +£182/yr, −£365).
 
 ## 3. Research results (key numbers; scripts in `research/`)
 
@@ -35,6 +38,9 @@ All backtests use daily Yahoo data with costs included. "Double" = two consecuti
 | ES / gold micros | same % risk as NQ; one micro ≈ $38k notional = 19× leverage on $2k; gold edge not reliable (GLD lost money) | rejected |
 | QQQ in a GBP Trading 212 Invest account | **0.15% FX fee each way kills it** (+9.7%/yr → −1.3%/yr) | rejected unless the account can hold USD |
 | London-listed GBP ETFs (EQQQ, CNX1) | London closes 11:30 NY; IBS on that session has **no edge** (−3.3%/yr) | rejected |
+| Improvements (`improve.py`): train 2001–14, test 2015–26, plus NQ/ES futures and untouched 1991–2000 index data. Kept: RSI(2)<10 as an extra entry, no Friday entries / no weekend holds. Rejected: 200-day trend filter (halves profit), VIX filters, "other index also weak", looser thresholds, alternative exits | improved rule NQ 2015–26: +£214/yr DD −£235 vs base +£203/−£285; 2001–14: +£208/−£255 vs +£135/−£298 | **adopted** |
+| ES with the same rule (`es_btc.py`) | about half the NQ profit for similar risk; NQ/ES same-day returns correlate 0.83–0.90, so trading both ≈ more NQ size | NQ only |
+| BTC with the same rule | loses after costs (−£129/yr, 2021+ t≈0); crypto CFDs banned for UK retail | rejected |
 | **US Tech 100 CFD by hand, £2,000 per trade** | ~**+£180/yr**, max DD ~−£380, worst night ~−£126, 2 of 17 years slightly negative | **current plan** |
 
 CFD cost assumptions used: 2-point spread round trip, manual-fill slippage 0.01%, overnight financing ~6.5%/yr on exposure

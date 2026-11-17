@@ -127,7 +127,7 @@ function cls(v){ return v>0?"pos":v<0?"neg":""; }
 async function refresh(){
   let d; try{ d = await (await fetch("/api/state")).json(); }catch(e){ $("sub").textContent="Can't reach the assistant: is it still running?"; return; }
   const s = d.state, r = d.report, a = s.alert;
-  $("sub").textContent = `Started ${s.started}. Rule: buy at the close when QQQ IBS < 0.30 two days running or < 0.10 today; sell at the next close.`;
+  $("sub").textContent = `Started ${s.started}. Rule: buy at the close when QQQ IBS < 0.30 two days running, IBS < 0.10 today, or RSI(2) < 10; sell at the next close. Never on a Friday: no weekend holds.`;
   const act = $("action"); act.className = "card action " + (a ? a.action : "");
   $("tag").textContent = a ? a.action : "-";
   $("atitle").textContent = a ? ({BUY:"Buy US 100 now",SELL:"Sell now",HOLD:"Hold",NONE:"Nothing today"}[a.action] + " · " + a.date) : "Waiting for today's check";

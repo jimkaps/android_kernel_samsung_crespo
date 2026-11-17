@@ -10,7 +10,8 @@ if there is something to do, pops up a notification with a sound:
   HOLD -> signal fired again, keep it open
 On exit days it also reminds you 3 hours before the close, and sends a LAST CALL 4 minutes before the close
 if you haven't confirmed. The exit is always "at the next close": no stop loss, no take profit.
-Rule: buy if QQQ's IBS < 0.30 today and yesterday, or < 0.10 today; sell at the next close.
+Rule: buy if QQQ's IBS < 0.30 today and yesterday, or IBS < 0.10 today, or QQQ's RSI(2) < 10;
+sell at the next close. Never hold over a weekend: no buys on Fridays, and a position is sold on Friday.
 
 On the page you log what you actually did (fill price, skipped, fees). It keeps the trade log,
 compares your fills with the official close, works out your real cost per trade, runs the trial
@@ -38,6 +39,7 @@ MAX_COST_PCT = float(os.environ.get("MAX_COST_PCT", "0.05"))   # backtest assume
 HEADSUP_HOURS = float(os.environ.get("HEADSUP_HOURS", "3"))     # on exit days, a reminder this long before the close
 LAST_CALL_MINUTES = int(os.environ.get("LAST_CALL_MINUTES", "4"))  # second alert if a BUY/SELL is still unconfirmed
 DBL, SINGLE = 0.30, 0.10
+RSI_MAX = 10.0
 
 HERE = Path(os.environ.get("BOT_DIR", Path(__file__).resolve().parent))
 STATE = HERE / "assistant_state.json"
@@ -93,17 +95,28 @@ def _dl(t, **kw):
 def ibs(h, l, c):
     return (c - l) / (h - l) if h > l else 0.5
 
+def rsi2(closes):
+    ch = closes.diff()
+    up = ch.clip(lower=0).ewm(alpha=0.5).mean().iloc[-1]
+    dn = (-ch.clip(upper=0)).ewm(alpha=0.5).mean().iloc[-1]
+    return 100.0 if dn == 0 else float(100 - 100 / (1 + up / dn))
+
 def signal_now():
-    daily = _dl("QQQ", period="15d", interval="1d")
+    daily = _dl("QQQ", period="6mo", interval="1d")
     intr = _dl("QQQ", period="1d", interval="1m", prepost=False)
     if intr.empty:
         raise RuntimeError("no intraday QQQ data from Yahoo")
     today = intr.index[-1].tz_convert("America/New_York").date()
-    y = daily[daily.index.date < today].iloc[-1]
-    it = ibs(float(intr.High.max()), float(intr.Low.min()), float(intr.Close.iloc[-1]))
+    past = daily[daily.index.date < today]
+    y = past.iloc[-1]
+    last = float(intr.Close.iloc[-1])
+    it = ibs(float(intr.High.max()), float(intr.Low.min()), last)
     iy = ibs(float(y.High), float(y.Low), float(y.Close))
-    return dict(date=str(today), ibs_today=round(it, 3), ibs_yesterday=round(iy, 3),
-                signal=bool((it < DBL and iy < DBL) or it < SINGLE))
+    r = rsi2(pd.concat([past.Close.astype(float), pd.Series([last])], ignore_index=True))
+    raw = bool((it < DBL and iy < DBL) or it < SINGLE or r < RSI_MAX)
+    friday = today.weekday() == 4
+    return dict(date=str(today), ibs_today=round(it, 3), ibs_yesterday=round(iy, 3), rsi2=round(r, 1),
+                friday=friday, raw=raw, signal=raw and not friday)
 
 def market_levels():
     ndx = _dl("^NDX", period="1d", interval="1m")
@@ -146,8 +159,10 @@ def daily_job(s, force=False):
     if force:
         m = minutes_to_close()
         if m is None or not (0 < m <= 20):
-            would = "BUY-type signal so far" if sig["signal"] else "no signal so far"
-            event(s, "preview", f"Preview only ({sig['date']}): IBS today {sig['ibs_today']}, yesterday {sig['ibs_yesterday']}: "
+            would = ("BUY-type signal so far" if sig["signal"] else
+                     "buy signal so far, but it's Friday (no weekend holds)" if sig.get("raw") else "no signal so far")
+            event(s, "preview", f"Preview only ({sig['date']}): IBS today {sig['ibs_today']}, yesterday {sig['ibs_yesterday']}, "
+                                f"RSI(2) {sig.get('rsi2')}: "
                                 f"{would}. Real decisions are made in the last 10–20 min before the US close.")
             return
     if s.get("last_run") == sig["date"]:
@@ -163,14 +178,16 @@ def daily_job(s, force=False):
         s["pending"] = None
     level, gbpusd = market_levels()
     s["gbpusd"] = gbpusd
-    info = f"IBS today {sig['ibs_today']}, yesterday {sig['ibs_yesterday']}"
+    info = f"IBS today {sig['ibs_today']}, yesterday {sig['ibs_yesterday']}, RSI(2) {sig.get('rsi2')}"
+    friday = sig.get("friday", False)
     pos = s.get("position")
     if pos and sig["signal"]:
         pos["exit_plan"] = exit_plan(sig["date"])
         alert = dict(action="HOLD", text=f"Signal fired again. Keep your {pos['units']} units open. " + pos["exit_plan"])
     elif pos:
         s["pending"] = {"action": "SELL", "date": sig["date"], "units": pos["units"], "model_px": level}
-        alert = dict(action="SELL", text=f"Close your US 100 position ({pos['units']} units) now, before "
+        alert = dict(action="SELL", text=("It's Friday: never hold over the weekend. " if friday else "") +
+                                         f"Close your US 100 position ({pos['units']} units) now, before "
                                          f"{uk_time(NYSE.session_close(pd.Timestamp(sig['date'])))} UK. Index ≈ {level:,.1f}.")
     elif sig["signal"]:
         units = units_for(s["exposure"], level, gbpusd)
@@ -178,6 +195,8 @@ def daily_job(s, force=False):
         alert = dict(action="BUY", text=f"Open a long US 100 position of {units} units now "
                                         f"(≈ £{s['exposure']:,.0f}, index ≈ {level:,.1f}). No stop, no target. "
                                         + exit_plan(sig["date"]))
+    elif sig.get("raw") and friday:
+        alert = dict(action="NONE", text="Buy signal, but it's Friday: the rule never buys on a Friday (no weekend holds). Nothing to do today.")
     else:
         alert = dict(action="NONE", text="Nothing to do today.")
     s["alert"] = {**alert, "date": sig["date"], "info": info, "id": f"{sig['date']}-{alert['action']}",

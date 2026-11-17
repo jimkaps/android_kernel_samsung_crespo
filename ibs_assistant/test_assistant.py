@@ -64,6 +64,40 @@ def test_schedule_order():
     assert kinds == [("Tue 18:00", "headsup"), ("Tue 20:50", "decide"), ("Tue 20:56", "lastcall"), ("Wed 18:00", "headsup")], kinds
     assert a.next_fire(datetime(2026, 1, 6, 20, 51, tzinfo=timezone.utc)).strftime("%a %H:%M") == "Wed 20:50"
 
+def fake_market(today, closes_hist, day_hi, day_lo, day_last, y_hi=None, y_lo=None):
+    import pandas as pd
+    idx = pd.bdate_range(end=pd.Timestamp(today) - pd.Timedelta(days=1), periods=len(closes_hist))
+    daily = pd.DataFrame({"Close": closes_hist, "High": [c + 1 for c in closes_hist], "Low": [c - 1 for c in closes_hist]}, index=idx)
+    if y_hi is not None: daily.iloc[-1, 1:] = [y_hi, y_lo]
+    t = pd.date_range(f"{today} 14:30", periods=3, freq="h", tz="UTC")
+    intr = pd.DataFrame({"High": [day_hi] * 3, "Low": [day_lo] * 3, "Close": [day_lo, day_lo, day_last]}, index=t)
+    a._dl = lambda tk, **kw: intr if kw.get("interval") == "1m" else daily
+def test_rsi_entry_and_friday():
+    real = a.signal_now
+    try:
+        a.signal_now = SIGNAL_NOW
+        hist = [400 + i for i in range(60)] + [440, 430]           # two sharp down days -> RSI(2) very low
+        fake_market("2026-01-08", hist, day_hi=429, day_lo=420, day_last=428)   # Thursday, close near the high: IBS ~0.9
+        g = a.signal_now(); assert g["ibs_today"] > 0.8 and g["rsi2"] < 10 and g["signal"] and not g["friday"], g
+        fake_market("2026-01-09", hist, day_hi=429, day_lo=420, day_last=428)   # same on a Friday: blocked
+        g = a.signal_now(); assert g["raw"] and g["friday"] and not g["signal"], g
+        up = [400 + i for i in range(62)]
+        fake_market("2026-01-08", up, day_hi=470, day_lo=460, day_last=469)     # steady rise: no signal
+        g = a.signal_now(); assert g["rsi2"] > 50 and not g["raw"], g
+        fake_market("2026-01-08", up, day_hi=470, day_lo=460, day_last=460.5, y_hi=470, y_lo=455)  # IBS rule still works
+        g = a.signal_now(); assert g["ibs_today"] < 0.1 and g["signal"], g
+    finally:
+        a.signal_now = real
+    s = a.new_state()
+    day("2026-01-08", True, s); a.act_filled(s, 25000.0)                       # Thursday buy
+    assert "Fri 09 Jan" in s["position"]["exit_plan"]
+    a.signal_now = lambda: dict(date="2026-01-09", ibs_today=0.05, ibs_yesterday=0.2, rsi2=3.0, friday=True, raw=True, signal=False)
+    LEVEL["v"] = closes["2026-01-09"]; a.daily_job(s)
+    assert s["alert"]["action"] == "SELL" and "Friday" in s["alert"]["text"], s["alert"]   # held on Friday -> sell, no HOLD
+    s2 = a.new_state(); a.daily_job(s2)
+    assert s2["alert"]["action"] == "NONE" and "Friday" in s2["alert"]["text"] and s2["pending"] is None
+SIGNAL_NOW = a.signal_now
+
 if __name__ == "__main__":
     test_cycle(); test_skip_and_missed(); test_unconfirmed_logged(); test_trial_upgrade(); test_check_now_is_preview_midday()
-    test_exit_reminders(); test_schedule_order(); print("all tests passed")
+    test_exit_reminders(); test_schedule_order(); test_rsi_entry_and_friday(); print("all tests passed")
