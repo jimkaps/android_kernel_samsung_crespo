@@ -93,6 +93,11 @@ and **refuses to trade live from a non-USD account** (FX fee). Endpoints came fr
 Trading 212's docs weren't reachable from the build environment, so **verify against the official docs before live use**.
 Only useful if the user's Invest/ISA account can hold USD.
 
+### November 2026 follow-up research (see `research/FINDINGS_2026-11.md`)
+- The Strat, Trader Kane's "Lab Model", ICT setups (Silver Bullet, sweeps, iFVG, midnight open, PDH/PDL raid) and fib confluence were all tested on NQ 5-minute data (2020–2026). None beat chance.
+- A 70,586-strategy search with a locked 2025–26 test and a scrambled-luck benchmark found nothing. Don't re-run these hoping for a different answer.
+- Improving IBS: sizing, exits, shorts, extra entries and the turn of the month didn't beat the current rule in both periods. The rule works on SPY, IWM and DIA but not on European or Asian indices. QQQ + IWM is a risk choice, not an improvement.
+
 ### `research/`
 `ibs_bt.py` (core backtests), `small.py` (ES/SPY/gold/QQQ comparison), `own.py` (NQ own account), `lucid_ibs.py`, `mc.py`,
 `funded.py`, `funded2.py` (prop-account sims and walk-forward), `cfd_manual.py` (the CFD P&L estimate and chart).
